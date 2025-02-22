@@ -27,10 +27,6 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build -x test
 
-      - name: Make zip file
-        run: zip -r ./deploy.zip .
-        shell: bash
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -38,8 +34,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Upload to S3
-        run: aws s3 cp --region ${{ secrets.AWS_REGION }} ./deploy.zip s3://${{ secrets.S3_BUCKET_NAME }}/
+      - name: Upload JAR to S3
+        run: |
+          jar_file=$(find build/libs -name '*.jar' -type f)
+          aws s3 cp $jar_file s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
@@ -49,17 +47,10 @@ jobs:
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
             cd /home/ubuntu/app
-            sudo rm -rf ./deploy
-            mkdir -p deploy
-            cd deploy
-            aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/deploy.zip .
-            unzip -o deploy.zip
-            sudo chmod +x ./gradlew
-            sudo ./gradlew clean build -x test
             
-            echo "Copying JAR file..."
-            sudo cp /home/ubuntu/app/deploy/build/libs/youtube-0.0.1-SNAPSHOT.jar /home/ubuntu/app/application.jar
-            sudo chown ubuntu:ubuntu /home/ubuntu/app/application.jar
+            echo "Downloading JAR from S3..."
+            aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar application.jar
+            sudo chown ubuntu:ubuntu application.jar
             
             echo "Starting service with environment variables..."
             sudo systemctl stop spring-app
