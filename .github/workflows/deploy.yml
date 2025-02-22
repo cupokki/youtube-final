@@ -52,7 +52,12 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          envs: DB_HOST,DB_NAME,DB_USERNAME,DB_PASSWORD,DB_PORT
+          envs: |
+            DB_HOST
+            DB_NAME
+            DB_USERNAME
+            DB_PASSWORD
+            DB_PORT
           script: |
             cd /opt
             sudo rm -rf ./youtube
