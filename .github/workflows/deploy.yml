@@ -27,6 +27,10 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build -x test
 
+      - name: Make zip file
+        run: zip -r ./deploy.zip .
+        shell: bash
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,10 +38,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Upload JAR to S3
-        run: |
-          jar_file=$(find build/libs -name '*.jar' -type f)
-          aws s3 cp $jar_file s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar
+      - name: Upload to S3
+        run: aws s3 cp --region ${{ secrets.AWS_REGION }} ./deploy.zip s3://${{ secrets.S3_BUCKET_NAME }}/
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
@@ -47,25 +49,21 @@ jobs:
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
             cd /home/ubuntu/app
+            sudo rm -rf ./deploy
+            mkdir -p deploy
+            cd deploy
+            aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/deploy.zip .
+            unzip -o deploy.zip
+            sudo chmod +x ./gradlew
+            sudo ./gradlew clean build -x test
             
-            echo "Downloading JAR from S3..."
-            aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar application.jar
-            sudo chown ubuntu:ubuntu application.jar
+            echo "Copying JAR file..."
+            sudo cp /home/ubuntu/app/deploy/build/libs/youtube-0.0.1-SNAPSHOT.jar /home/ubuntu/app/application.jar
+            sudo chown ubuntu:ubuntu /home/ubuntu/app/application.jar
+            echo "JAR file copied successfully"
             
-            echo "Starting service with environment variables..."
-            sudo systemctl stop spring-app
-            
-            sudo SPRING_PROFILES_ACTIVE=aws \
-            DB_HOST=${{ secrets.DB_HOST }} \
-            DB_PORT=${{ secrets.DB_PORT }} \
-            DB_NAME=${{ secrets.DB_NAME }} \
-            DB_USERNAME=${{ secrets.DB_USERNAME }} \
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-            AWS_REGION=${{ secrets.AWS_REGION }} \
-            S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }} \
-            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
-            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-            systemctl start spring-app
+            echo "Starting service..."
+            sudo systemctl restart spring-app
             
             echo "Checking service status..."
             sleep 5
