@@ -7,6 +7,11 @@ on:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+  DB_HOST: ${{ secrets.DB_HOST }}
+  DB_NAME: ${{ secrets.DB_NAME }}
+  DB_USERNAME: ${{ secrets.DB_USERNAME }}
+  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+  DB_PORT: ${{ secrets.DB_PORT }}
 
 jobs:
   deploy:
@@ -47,25 +52,51 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          envs: DB_HOST,DB_NAME,DB_USERNAME,DB_PASSWORD,DB_PORT
           script: |
-            cd /home/ubuntu/app
-            sudo rm -rf ./deploy
-            mkdir -p deploy
-            cd deploy
-            aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/deploy.zip .
-            unzip -o deploy.zip
+            cd /opt
+            sudo rm -rf ./youtube
+            sudo mkdir -p youtube
+            cd youtube
+            
+            # S3에서 배포 파일 다운로드
+            sudo aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/deploy.zip .
+            
+            sudo unzip -o deploy.zip
             sudo chmod +x ./gradlew
             sudo ./gradlew clean build -x test
             
             echo "Copying JAR file..."
-            sudo cp /home/ubuntu/app/deploy/build/libs/youtube-0.0.1-SNAPSHOT.jar /home/ubuntu/app/application.jar
-            sudo chown ubuntu:ubuntu /home/ubuntu/app/application.jar
+            sudo cp /opt/youtube/build/libs/*.jar /opt/youtube/youtube.jar
+            sudo chown $(whoami):$(whoami) /opt/youtube/youtube.jar
             echo "JAR file copied successfully"
             
-            echo "Starting service..."
-            sudo systemctl restart spring-app
-            
-            echo "Checking service status..."
-            sleep 5
-            sudo systemctl status spring-app
-            sudo journalctl -u spring-app -n 50 --no-pager
+            # Create systemd service file
+            echo "Creating systemd service file..."
+            sudo tee /etc/systemd/system/youtube.service << EOF
+  [Unit]
+  Description=YouTube Application
+  After=network.target
+  
+  [Service]
+  Type=simple
+  WorkingDirectory=/opt/youtube
+  ExecStart=/usr/bin/java -jar /opt/youtube/youtube.jar
+  User=$(whoami)
+  Restart=on-failure
+  RestartSec=10
+  
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+  
+  echo "Reloading systemd daemon..."
+  sudo systemctl daemon-reload
+  
+  echo "Starting service..."
+  sudo systemctl restart youtube
+  
+  echo "Checking service status..."
+  sleep 5
+  sudo systemctl status youtube
+  sudo journalctl -u youtube -n 50 --no-pager
