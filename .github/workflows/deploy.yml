@@ -48,16 +48,17 @@ jobs:
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PORT: ${{ secrets.DB_PORT }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          envs: |
-            DB_HOST
-            DB_NAME
-            DB_USERNAME
-            DB_PASSWORD
-            DB_PORT
+          envs: DB_HOST,DB_NAME,DB_USERNAME,DB_PASSWORD,DB_PORT
           script: |
             cd /opt
             sudo rm -rf ./youtube
@@ -78,30 +79,15 @@ jobs:
             
             # Create systemd service file
             echo "Creating systemd service file..."
-            sudo tee /etc/systemd/system/youtube.service << EOF
-  [Unit]
-  Description=YouTube Application
-  After=network.target
-  
-  [Service]
-  Type=simple
-  WorkingDirectory=/opt/youtube
-  ExecStart=/usr/bin/java -jar /opt/youtube/youtube.jar
-  User=$(whoami)
-  Restart=on-failure
-  RestartSec=10
-  
-  [Install]
-  WantedBy=multi-user.target
-  EOF
-  
-  echo "Reloading systemd daemon..."
-  sudo systemctl daemon-reload
-  
-  echo "Starting service..."
-  sudo systemctl restart youtube
-  
-  echo "Checking service status..."
-  sleep 5
-  sudo systemctl status youtube
-  sudo journalctl -u youtube -n 50 --no-pager
+            echo "[Unit]\nDescription=YouTube Application\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=/opt/youtube\nExecStart=/usr/bin/java -jar /opt/youtube/youtube.jar\nUser=$(whoami)\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target" | sudo tee /etc/systemd/system/youtube.service
+            
+            echo "Reloading systemd daemon..."
+            sudo systemctl daemon-reload
+            
+            echo "Starting service..."
+            sudo systemctl restart youtube
+            
+            echo "Checking service status..."
+            sleep 5
+            sudo systemctl status youtube
+            sudo journalctl -u youtube -n 50 --no-pager
