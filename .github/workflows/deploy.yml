@@ -12,11 +12,12 @@ env:
   DB_USERNAME: ${{ secrets.DB_USERNAME }}
   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
   DB_PORT: ${{ secrets.DB_PORT }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
 
@@ -26,15 +27,10 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
       - name: Build with Gradle
-        run: ./gradlew clean build -x test
-
-      - name: Make zip file
-        run: zip -r ./deploy.zip .
-        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew clean build -x test
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -44,50 +40,15 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Upload to S3
-        run: aws s3 cp --region ${{ secrets.AWS_REGION }} ./deploy.zip s3://${{ secrets.S3_BUCKET_NAME }}/
+        run: aws s3 cp build/libs/*.jar s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
-        env:
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          DB_USERNAME: ${{ secrets.DB_USERNAME }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_PORT: ${{ secrets.DB_PORT }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          envs: DB_HOST,DB_NAME,DB_USERNAME,DB_PASSWORD,DB_PORT
+          envs: DB_HOST,DB_NAME,DB_USERNAME,DB_PASSWORD,DB_PORT,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION,S3_BUCKET_NAME
           script: |
-            cd /opt
-            sudo rm -rf ./youtube
-            sudo mkdir -p youtube
-            cd youtube
-            
-            # S3에서 배포 파일 다운로드
-            sudo aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/deploy.zip .
-            
-            sudo unzip -o deploy.zip
-            sudo chmod +x ./gradlew
-            sudo ./gradlew clean build -x test
-            
-            echo "Copying JAR file..."
-            sudo cp /opt/youtube/build/libs/*.jar /opt/youtube/youtube.jar
-            sudo chown $(whoami):$(whoami) /opt/youtube/youtube.jar
-            echo "JAR file copied successfully"
-            
-            # Create systemd service file
-            echo "Creating systemd service file..."
-            echo "[Unit]\nDescription=YouTube Application\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=/opt/youtube\nExecStart=/usr/bin/java -jar /opt/youtube/youtube.jar\nUser=$(whoami)\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target" | sudo tee /etc/systemd/system/youtube.service
-            
-            echo "Reloading systemd daemon..."
-            sudo systemctl daemon-reload
-            
-            echo "Starting service..."
+            sudo aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar /opt/youtube/youtube.jar
             sudo systemctl restart youtube
-            
-            echo "Checking service status..."
-            sleep 5
-            sudo systemctl status youtube
-            sudo journalctl -u youtube -n 50 --no-pager
