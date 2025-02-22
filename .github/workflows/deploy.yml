@@ -1,4 +1,4 @@
-name: Deploy to AWS EC2 Youtube
+name: Deploy to AWS EC2
 
 on:
   push:
@@ -36,8 +36,7 @@ jobs:
 
       - name: Upload JAR to S3
         run: |
-          jar_file=$(find build/libs -name '*.jar' -type f)
-          aws s3 cp $jar_file s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar
+          aws s3 cp build/libs/youtube-0.0.1-SNAPSHOT.jar "s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar"
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
@@ -47,7 +46,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
             echo "Downloading JAR from S3..."
-            aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar /home/ubuntu/app/application.jar
+            aws s3 cp "s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar" /home/ubuntu/app/application.jar
             sudo chown ubuntu:ubuntu /home/ubuntu/app/application.jar
             
             echo "Starting service with environment variables..."
@@ -67,3 +66,4 @@ jobs:
             echo "Checking service status..."
             sleep 5
             sudo systemctl status spring-app
+            sudo journalctl -u spring-app -n 50 --no-pager
