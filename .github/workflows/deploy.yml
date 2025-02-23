@@ -56,7 +56,6 @@ jobs:
             
             sudo -E java -jar application.jar \
             --spring.profiles.active=aws \
-            --spring.output.ansi.enabled=never \
             --spring.datasource.url=jdbc:mariadb://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} \
             --spring.datasource.username=${{ secrets.DB_USERNAME }} \
             --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
