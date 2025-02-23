@@ -50,23 +50,16 @@ jobs:
             aws s3 cp "s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar" /home/ubuntu/app/application.jar
             sudo chown ubuntu:ubuntu /home/ubuntu/app/application.jar
             
-            echo "Starting service with environment variables..."
+            echo "Starting application..."
+            cd /home/ubuntu/app
             sudo systemctl stop spring-app
             
-            sudo -E \
-            SPRING_PROFILES_ACTIVE=aws \
-            DB_HOST=${{ secrets.DB_HOST }} \
-            DB_PORT=${{ secrets.DB_PORT }} \
-            DB_NAME=${{ secrets.DB_NAME }} \
-            DB_USERNAME=${{ secrets.DB_USERNAME }} \
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-            AWS_REGION=${{ secrets.AWS_REGION }} \
-            S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }} \
-            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
-            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-            systemctl start spring-app
-            
-            echo "Checking service status..."
-            sleep 5
-            sudo systemctl status spring-app
-            sudo journalctl -u spring-app -n 50 --no-pager
+            sudo -E java -jar application.jar \
+            --spring.profiles.active=aws \
+            --spring.datasource.url=jdbc:mariadb://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} \
+            --spring.datasource.username=${{ secrets.DB_USERNAME }} \
+            --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
+            --cloud.aws.s3.bucket=${{ secrets.S3_BUCKET_NAME }} \
+            --cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY_ID }} \
+            --cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            --cloud.aws.region.static=${{ secrets.AWS_REGION }}
