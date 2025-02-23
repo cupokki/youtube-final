@@ -25,7 +25,8 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build with Gradle
-        run: ./gradlew clean build -x test
+        run: |
+          ./gradlew clean build -x test
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,7 +53,8 @@ jobs:
             echo "Starting service with environment variables..."
             sudo systemctl stop spring-app
             
-            sudo SPRING_PROFILES_ACTIVE=aws \
+            sudo -E \
+            SPRING_PROFILES_ACTIVE=aws \
             DB_HOST=${{ secrets.DB_HOST }} \
             DB_PORT=${{ secrets.DB_PORT }} \
             DB_NAME=${{ secrets.DB_NAME }} \
