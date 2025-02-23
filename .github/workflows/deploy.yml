@@ -51,6 +51,7 @@ jobs:
             
             echo "Starting service with environment variables..."
             sudo systemctl stop spring-app
+            
             sudo SPRING_PROFILES_ACTIVE=aws \
             DB_HOST=${{ secrets.DB_HOST }} \
             DB_PORT=${{ secrets.DB_PORT }} \
