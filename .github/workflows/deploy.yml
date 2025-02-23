@@ -3,64 +3,118 @@ name: Deploy to AWS EC2
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:  # Allow manual triggering
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+  APPLICATION_NAME: youtube
+  DEPLOY_PACKAGE_NAME: youtube.jar
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      # 1. Checkout the repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
+      # 2. Set up Java
       - name: Set up JDK 21
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: 'gradle'
 
+      # 3. Grant execute permission for gradlew
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # 4. Build the application
       - name: Build with Gradle
         run: |
           ./gradlew clean build -x test
 
-      - name: Configure AWS credentials
+      # 5. Run tests (optional, can be uncommented if needed)
+      # - name: Run Tests
+      #   run: ./gradlew test
+
+      # 6. Configure AWS Credentials
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # 7. Upload artifact to S3
       - name: Upload JAR to S3
         run: |
-          aws s3 cp build/libs/youtube-0.0.1-SNAPSHOT.jar "s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar"
+          aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
+            s3://${{ env.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }}
 
+      # 8. Deploy to EC2 via SSH
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
+        env:
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          envs: S3_BUCKET_NAME,AWS_REGION
           script: |
-            echo "Downloading JAR from S3..."
-            aws s3 cp "s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar" /home/ubuntu/app/application.jar
-            sudo chown ubuntu:ubuntu /home/ubuntu/app/application.jar
-            
-            echo "Starting application..."
+            # Create application directory if not exists
+            mkdir -p /home/ubuntu/app
             cd /home/ubuntu/app
-            sudo systemctl stop spring-app
+
+            # Download JAR from S3
+            echo "Downloading application JAR from S3..."
+            aws s3 cp s3://$S3_BUCKET_NAME/${{ env.DEPLOY_PACKAGE_NAME }} application.jar
+
+            # Set correct permissions
+            sudo chown ubuntu:ubuntu application.jar
             
-            sudo -E java -jar application.jar \
-            --spring.profiles.active=aws \
-            --spring.datasource.url=jdbc:mariadb://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} \
-            --spring.datasource.username=${{ secrets.DB_USERNAME }} \
-            --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
-            --cloud.aws.s3.bucket=${{ secrets.S3_BUCKET_NAME }} \
-            --cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY_ID }} \
-            --cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-            --cloud.aws.region.static=${{ secrets.AWS_REGION }} \
-            --file.upload.uri=http://${S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/upload \
+            # Stop existing application service
+            sudo systemctl stop spring-app || true
+
+            # Run deployment script with all necessary environment variables
+            sudo -E /bin/bash << 'EOF'
+            #!/bin/bash
+            set -e  # Exit on any error
+
+            # Application startup script with comprehensive logging
+            nohup java -jar /home/ubuntu/app/application.jar \
+              --spring.profiles.active=aws \
+              --spring.datasource.url=jdbc:mariadb://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} \
+              --spring.datasource.username=${{ secrets.DB_USERNAME }} \
+              --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
+              --cloud.aws.s3.bucket=$S3_BUCKET_NAME \
+              --cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY_ID }} \
+              --cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+              --cloud.aws.region.static=$AWS_REGION \
+              --file.upload.uri=http://${S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/upload \
+              > /home/ubuntu/app/application.log 2>&1 &
+
+            # Wait for application to start
+            sleep 15
+            
+            # Start systemd service
+            systemctl start spring-app
+            EOF
+
+            echo "Deployment completed successfully!"
+
+      # 9. Optional: Slack or other notification
+      # - name: Notify Slack on Deployment
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: ${{ job.status }}
+      #     text: Deployment to EC2 completed
+      #   if: always()
+
+    # Set timeout to prevent hanging
+    timeout-minutes: 15
