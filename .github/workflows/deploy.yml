@@ -79,7 +79,7 @@ jobs:
             sudo chown ubuntu:ubuntu application.jar
             
             # Stop existing application service
-            sudo systemctl stop spring-app || true
+            #sudo systemctl stop spring-app || true
 
             # Run deployment script with all necessary environment variables
             sudo -E /bin/bash << 'EOF'
@@ -103,7 +103,7 @@ jobs:
             sleep 15
             
             # Start systemd service
-            systemctl start spring-app
+            #systemctl start spring-app
             EOF
 
             echo "Deployment completed successfully!"
