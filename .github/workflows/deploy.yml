@@ -3,7 +3,7 @@ name: Deploy to AWS EC2
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:  # 수동 실행 가능
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout the repository
+      # 1. 저장소 체크아웃
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Set up Java
+      # 2. Java 21 설정
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -28,20 +28,16 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      # 3. Grant execute permission for gradlew
+      # 3. Gradlew 실행 권한 부여
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # 4. Build the application
+      # 4. Gradle 빌드 (테스트 제외)
       - name: Build with Gradle
         run: |
           ./gradlew clean build -x test
 
-      # 5. Run tests (optional, can be uncommented if needed)
-      # - name: Run Tests
-      #   run: ./gradlew test
-
-      # 6. Configure AWS Credentials
+      # 5. AWS 자격 증명 설정
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -49,78 +45,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 7. Upload artifact to S3
+      # 6. 빌드된 JAR 파일을 S3에 업로드
       - name: Upload JAR to S3
         run: |
           aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
-            s3://${{ env.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }}
-
-      # 8. Deploy to EC2 via SSH
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
-        env:
-          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          envs: S3_BUCKET_NAME,AWS_REGION
-          script: |
-            # Create application directory if not exists
-            mkdir -p /home/ubuntu/app
-            cd /home/ubuntu/app
-
-            # Download JAR from S3
-            echo "Downloading application JAR from S3..."
-            aws s3 cp s3://$S3_BUCKET_NAME/${{ env.DEPLOY_PACKAGE_NAME }} application.jar
-
-            # Set correct permissions
-            sudo chown ubuntu:ubuntu application.jar
-            
-            # Stop existing application if running
-            if pgrep -f "java -jar /home/ubuntu/app/application.jar"; then
-              echo "Stopping current application..."
-              sudo pkill -f "java -jar /home/ubuntu/app/application.jar"
-              sleep 5
-            fi
-
-            # Run the application with all necessary environment variables
-            echo "Starting application..."
-            nohup java -jar /home/ubuntu/app/application.jar \
-              --spring.profiles.active=aws \
-              --spring.datasource.url=jdbc:mariadb://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} \
-              --spring.datasource.username=${{ secrets.DB_USERNAME }} \
-              --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
-              --cloud.aws.s3.bucket=$S3_BUCKET_NAME \
-              --cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY_ID }} \
-              --cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-              --cloud.aws.region.static=$AWS_REGION \
-              --file.upload.uri=http://${S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/upload \
-              > /home/ubuntu/app/application.log 2>&1 &
-
-            # Save PID for reference
-            echo $! > /home/ubuntu/app/application.pid
-            echo "Application started with PID $(cat /home/ubuntu/app/application.pid)"
-
-            # Wait for application to start
-            sleep 10
-            
-            # Check if application is running
-            if ps -p $(cat /home/ubuntu/app/application.pid) > /dev/null; then
-              echo "Deployment completed successfully!"
-            else
-              echo "Failed to start application. Check logs at /home/ubuntu/app/application.log"
-              exit 1
-            fi
-
-      # 9. Optional: Slack or other notification
-      # - name: Notify Slack on Deployment
-      #   uses: 8398a7/action-slack@v3
-      #   with:
-      #     status: ${{ job.status }}
-      #     text: Deployment to EC2 completed
-      #   if: always()
-
-    # Set timeout to prevent hanging
-    timeout-minutes: 15
+            s3://${{ env.S3_BUCKET_NAME }}/${{ env.DEPLO
