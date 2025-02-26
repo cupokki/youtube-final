@@ -9,7 +9,7 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
   APPLICATION_NAME: youtube
-  TIMESTAMP: ${{ format('{0:yyyyMMdd-HHmmss}', github.event.repository.pushed_at) }}
+  DEPLOY_PACKAGE_NAME: youtube.jar
 
 jobs:
   build-and-deploy:
@@ -49,105 +49,78 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 7. Get commit hash for versioning
-      - name: Get commit hash
-        id: vars
-        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
-
-      # 8. Upload artifact to S3 with versioning
+      # 7. Upload artifact to S3
       - name: Upload JAR to S3
         run: |
-          # Version name with timestamp and commit hash for proper tracking
-          VERSION_NAME="${{ env.APPLICATION_NAME }}-${{ env.TIMESTAMP }}-${{ steps.vars.outputs.sha_short }}.jar"
-          
-          # Upload versioned JAR
           aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
-            s3://${{ env.S3_BUCKET_NAME }}/versions/$VERSION_NAME
-          
-          # Also upload as latest for convenience (optional)
-          aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
-            s3://${{ env.S3_BUCKET_NAME }}/${{ env.APPLICATION_NAME }}-latest.jar
-          
-          # Store version name for deployment
-          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
+            s3://${{ env.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }}
 
-      # 9. Deploy to EC2 via SSH - Using systemd service for consistency
+      # 8. Deploy to EC2 via SSH
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
         env:
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
-          VERSION_NAME: ${{ env.VERSION_NAME }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          envs: S3_BUCKET_NAME,AWS_REGION,VERSION_NAME
+          envs: S3_BUCKET_NAME,AWS_REGION
           script: |
             # Create application directory if not exists
             mkdir -p /home/ubuntu/app
             cd /home/ubuntu/app
-            
-            # Download versioned JAR from S3
+
+            # Download JAR from S3
             echo "Downloading application JAR from S3..."
-            aws s3 cp s3://$S3_BUCKET_NAME/versions/$VERSION_NAME application.jar
-            
+            aws s3 cp s3://$S3_BUCKET_NAME/${{ env.DEPLOY_PACKAGE_NAME }} application.jar
+
             # Set correct permissions
             sudo chown ubuntu:ubuntu application.jar
             
-            # Create/update systemd service file if it doesn't exist
-            if [ ! -f /etc/systemd/system/spring-app.service ]; then
-              echo "Creating systemd service file..."
-              sudo bash -c 'cat > /etc/systemd/system/spring-app.service << EOF
-  [Unit]
-  Description=Spring Boot Application
-  After=network.target
-  
-  [Service]
-  User=ubuntu
-  WorkingDirectory=/home/ubuntu/app
-  ExecStart=/usr/bin/java -jar /home/ubuntu/app/application.jar \
-  --spring.profiles.active=aws \
-  --spring.datasource.url=jdbc:mariadb://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} \
-  --spring.datasource.username=${{ secrets.DB_USERNAME }} \
-  --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
-  --cloud.aws.s3.bucket=$S3_BUCKET_NAME \
-  --cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY_ID }} \
-  --cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-  --cloud.aws.region.static=$AWS_REGION \
-  --file.upload.uri=http://${S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/upload
-  SuccessExitStatus=143
-  TimeoutStopSec=10
-  Restart=on-failure
-  RestartSec=5
-  
-  [Install]
-  WantedBy=multi-user.target
-  EOF'
-  fi
-  
-  # Reload systemd to apply changes
-  sudo systemctl daemon-reload
-  
-  # Stop, start and enable the service
-  sudo systemctl stop spring-app || true
-  sudo systemctl start spring-app
-  sudo systemctl enable spring-app
-  
-  # Check status to verify deployment
-  sudo systemctl status spring-app --no-pager
+            # Stop existing application if running
+            if pgrep -f "java -jar /home/ubuntu/app/application.jar"; then
+              echo "Stopping current application..."
+              pkill -f "java -jar /home/ubuntu/app/application.jar"
+              sleep 5
+            fi
 
-# Log deployment version for tracking
-echo "Deployed version: $VERSION_NAME" >> /home/ubuntu/app/deployment-history.log
-  echo "Deployment completed successfully!"
+            # Run the application with all necessary environment variables
+            echo "Starting application..."
+            nohup java -jar /home/ubuntu/app/application.jar \
+              --spring.profiles.active=aws \
+              --spring.datasource.url=jdbc:mariadb://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} \
+              --spring.datasource.username=${{ secrets.DB_USERNAME }} \
+              --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
+              --cloud.aws.s3.bucket=$S3_BUCKET_NAME \
+              --cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY_ID }} \
+              --cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+              --cloud.aws.region.static=$AWS_REGION \
+              --file.upload.uri=http://${S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/upload \
+              > /home/ubuntu/app/application.log 2>&1 &
 
-# 10. Optional: Slack or other notification
-# - name: Notify Slack on Deployment
-#   uses: 8398a7/action-slack@v3
-#   with:
-#     status: ${{ job.status }}
-#     text: Deployment to EC2 completed
-#   if: always()
+            # Save PID for reference
+            echo $! > /home/ubuntu/app/application.pid
+            echo "Application started with PID $(cat /home/ubuntu/app/application.pid)"
 
-# Set timeout to prevent hanging
-timeout-minutes: 15
+            # Wait for application to start
+            sleep 10
+            
+            # Check if application is running
+            if ps -p $(cat /home/ubuntu/app/application.pid) > /dev/null; then
+              echo "Deployment completed successfully!"
+            else
+              echo "Failed to start application. Check logs at /home/ubuntu/app/application.log"
+              exit 1
+            fi
+
+      # 9. Optional: Slack or other notification
+      # - name: Notify Slack on Deployment
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: ${{ job.status }}
+      #     text: Deployment to EC2 completed
+      #   if: always()
+
+    # Set timeout to prevent hanging
+    timeout-minutes: 15
