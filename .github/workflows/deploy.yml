@@ -81,7 +81,7 @@ jobs:
             # Stop existing application if running
             if pgrep -f "java -jar /home/ubuntu/app/application.jar"; then
               echo "Stopping current application..."
-              pkill -f "java -jar /home/ubuntu/app/application.jar"
+              sudo pkill -f "java -jar /home/ubuntu/app/application.jar"
               sleep 5
             fi
 
