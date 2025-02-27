@@ -48,9 +48,8 @@ jobs:
       # 6. 빌드된 JAR 파일을 S3에 업로드
       - name: Upload JAR to S3
         run: |
-          echo "DEBUG"
-          echo ${{ env.DEPLOY_PACKAGE_NAME }}
-          aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar
+          aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
+            s3://${{ secrets.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }}
 
       # 7. EC2에 배포
       - name: Deploy to EC2
@@ -58,7 +57,7 @@ jobs:
         env:
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
-          DEPLOY_PACKAGE_NAME: youtube.jar
+          DEPLOY_PACKAGE_NAME: ${{ env.DEPLOY_PACKAGE_NAME }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
@@ -88,10 +87,8 @@ jobs:
             fi
 
             # 최신 JAR 다운로드
-            echo "DEBUG"
-            echo ${{ env.DEPLOY_PACKAGE_NAME }}
             echo "Downloading latest application JAR from S3..."
-            aws s3 cp s3://$S3_BUCKET_NAME/youtube.jar application.jar
+            aws s3 cp s3://$S3_BUCKET_NAME/$DEPLOY_PACKAGE_NAME application.jar
 
             # 권한 설정
             sudo chown ubuntu:ubuntu application.jar
