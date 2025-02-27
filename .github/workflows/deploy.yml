@@ -48,6 +48,10 @@ jobs:
       # 6. 빌드된 JAR 파일을 S3에 업로드
       - name: Upload JAR to S3
         run: |
+          echo s3://${{ secrets.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }} > test
+          echo DEBUG
+          cat ./test
+          rm ./test
           aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
             s3://${{ secrets.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }}
 
@@ -88,6 +92,10 @@ jobs:
 
             # 최신 JAR 다운로드
             echo "Downloading latest application JAR from S3..."
+            echo s3://$S3_BUCKET_NAME/$DEPLOY_PACKAGE_NAME > test
+            echo DEBUG
+            cat ./test
+            rm ./test
             aws s3 cp s3://$S3_BUCKET_NAME/$DEPLOY_PACKAGE_NAME application.jar
 
             # 권한 설정
