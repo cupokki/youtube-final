@@ -50,7 +50,7 @@ jobs:
         run: |
           echo s3://${{ secrets.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }} > debug
           echo DEBUG
-          cat ./debug
+          aws s3 cp ./debug s3://${{ secrets.S3_BUCKET_NAME }}/debug
           aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
             s3://${{ secrets.S3_BUCKET_NAME }}/${{ env.DEPLOY_PACKAGE_NAME }}
 
@@ -91,7 +91,7 @@ jobs:
 
             # 최신 JAR 다운로드
             echo "Downloading latest application JAR from S3..."
-            echo s3://$S3_BUCKET_NAME/$DEPLOY_PACKAGE_NAME > debug
+            echo s3://$S3_BUCKET_NAME/$DEPLOY_PACKAGE_NAME >> debug
             echo DEBUG
             cat ./debug
             aws s3 cp s3://$S3_BUCKET_NAME/$DEPLOY_PACKAGE_NAME application.jar
