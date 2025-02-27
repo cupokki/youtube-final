@@ -51,7 +51,7 @@ jobs:
           if [[ -z "${{ env.DEPLOY_PACKAGE_NAME }}" ]]; then
             echo "DEPLOY_PACKAGE_NAME is empty!"
           else
-            echo "DEPLOY_PACKAGE_NAME (escaped): '${{ env.DEPLOY_PACKAGE_NAME }}' | tr -d '*'"
+            echo "DEPLOY_PACKAGE_NAME (escaped): '${{ env.DEPLOY_PACKAGE_NAME }}' | tr -d '*'
           fi
           # aws s3 cp build/libs/${{ env.APPLICATION_NAME }}-0.0.1-SNAPSHOT.jar \
           #  s3://${{ secrets.S3_BUCKET_NAME }}/youtube.jar
